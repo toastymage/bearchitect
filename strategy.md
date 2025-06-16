@@ -23,8 +23,6 @@ Let's break down my observations and then develop actionable routines.
     * You've done well in delegating *ownership* to product architects. That's a great start.
     * However, "Generally they review with me to gain confidence" and the need for coaching in "Business domain, Integration architecture, Systems thinking and proactively understand architecture needs" indicates they are not yet fully empowered to make *strategic decisions* within their domain without your validation. This is holding you back from truly elevating.
 
-5.  **Boss's Role:** "Boss has not been very involved. He does provide great guidance at high level." This means you need to be largely self-driven in this strategic shift. While supportive, he's not actively paving the way *for you*.
-
 **Conclusion:** You're stuck in a highly effective "review and guide" mode, which is valuable but prevents you from truly leading the *architectural strategy*. You're fixing the current ship well, but not charting the course for the fleet.
 
 ---
