@@ -56,7 +56,7 @@ Here's a structured approach to integrate strategic activities into your week, l
 * **Rationale:** You need to bridge the gap with business leaders and gain a seat at their strategic table.
 * **Routine:**
     * **"Strategic Business Pulse" 1:1s (30 mins, Monthly):**
-        * **Who:** Head of Fund Admin, Head of TA Operations, Head of Performance & Attribution, Head of Market Data Services. Pick **one** each week or two, rotating through them.
+        * **Who:** Head of All Operations. Pick **one** each week or two, rotating through them.
         * **Activity:**
             * **Prepare:** Before each meeting, research their current business initiatives, recent performance, and industry news related to their domain. Come with *informed questions*.
             * **Questions to Ask:** "What are your top 3 strategic priorities for the next 6-12 months?" "What are the biggest challenges you foresee in achieving those priorities?" "Are there any emerging market opportunities you're excited about?" "How do you see technology *enabling* or *limiting* your ability to achieve X goal?"
@@ -92,7 +92,7 @@ Here's a structured approach to integrate strategic activities into your week, l
     * **"Strategic Output Review" (30 mins, End of Week):**
         * **Activity:** Review your strategic notes from the week.
             * What key insights did you gain from business leaders or horizon scanning?
-            * What's the one strategic action you need to take next week? (e.g., follow up with Head of Fund Admin on X, draft a 1-pager on Y architectural initiative).
+            * What's the one strategic action you need to take next week? (e.g., follow up with Head of Operations on X, draft a 1-pager on Y architectural initiative).
             * This keeps you accountable to your strategic shift.
 
 **V. Leveraging Your Boss**
