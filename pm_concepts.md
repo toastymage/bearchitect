@@ -77,22 +77,14 @@ Suppose a private equity fund has $1 billion in investor commitments, $700 milli
 
 The fund needs $90 million for an acquisition, $15 million for a follow-on investment, and wants to maintain a $10 million reserve.
 
-ILLUSTRATIVE GP FUNDING REQUIREMENT
+**ILLUSTRATIVE GP FUNDING REQUIREMENT**
 
-Investment and reserve requirements $115M
-
-Available bank cash −$25M
-
-Additional funding required
-
-# $90M
+- Investment and reserve requirements: $115M
+- Available bank cash: −$25M
+- Additional funding required: **$90M**
 
 The fund has $700 million of uncalled commitments, but that does not mean it has $700 million available for immediate payment. It must issue eligible capital calls, collect the contributions, or arrange approved financing.
 
 Now consider an LP that has committed to several private funds. It has $30 million of liquid cash, $42 million of confirmed capital calls due, and requires a $10 million reserve. Its immediate funding gap is $22 million. If $18 million of expected distributions arrives in time, the gap reduces to $4 million—but the LP should not treat an uncertain distribution as guaranteed funding.
 
-This explains why private-markets forecasting needs both contractual cash obligations and scenario-based liquidity projections. Financing facilities add another dimension because borrowing capacity is conditional and creates repayment obligations.&#x20;
-
-[image](https://www.google.com/s2/favicons?domain=https://ilpa.org\&sz=32)
-
-Institutional Limited Partners Association
+This explains why private-markets forecasting needs both contractual cash obligations and scenario-based liquidity projections. Financing facilities add another dimension because borrowing capacity is conditional and creates repayment obligations.
