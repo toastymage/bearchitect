@@ -1,625 +1,681 @@
-Modernizing Legacy Enterprise Applications
+# Modernizing Legacy Enterprise Applications
+## A Practical Technical Architecture and Implementation Guide
 
-A Practical Guide to Technical Architecture Assessment, Incremental Modernization, and Investment Planning
+### 1. Executive Summary
 
-1. Executive Summary
+Legacy enterprise applications frequently combine workflow engines, scheduled batch processing, database stored procedures, service APIs, and server-side user interfaces within a tightly coupled application.
 
-Many enterprise applications have evolved over years of incremental enhancements, technology upgrades, and changing operational requirements. Although these applications continue to deliver critical functionality, their internal architecture may become increasingly difficult to maintain, extend, and operate.
+Modernization should focus on eliminating verified technical constraints rather than replacing technologies simply because they are old.
 
-Common characteristics include:
+This guide presents a concrete reference architecture based on five principles:
 
-* Legacy workflow engines such as Activiti.
-* Rigid, feed-driven batch processing.
-* Server-side user interfaces built with JSP.
-* Complex database stored procedures.
-* Batch, service, and online processing bundled within a single application.
-* Dependencies on legacy ETL platforms such as Informatica.
+1. Separate ingestion, batch, and online execution.
+2. Retain the existing relational database and proven processing logic initially.
+3. Replace implicit processing dependencies with explicit, restartable jobs.
+4. Isolate business workflow management from technical job orchestration.
+5. Introduce standardized execution controls, observability, and regression testing.
 
-The presence of these technologies does not, by itself, establish a need for modernization.
+The recommended target is a modular architecture with separately deployable workloads, not a distributed microservices architecture.
 
-The central architectural question is whether the application can continue to meet its operational, security, maintainability, and change requirements at an acceptable cost and level of risk.
+### 2. Proposed Target Architecture
 
-A sound modernization strategy should distinguish between three categories of technical concerns:
+The reference implementation assumes an existing Java-based enterprise application with a relational database, scheduled data feeds, legacy ETL processing, Activiti workflows, and a JSP-based interface.
 
-1. Mandatory changes: Technology retirement, end-of-support deadlines, security requirements, and mandated platform migrations.
-2. Demonstrated architectural limitations: Excessive coupling, operational fragility, inadequate recovery mechanisms, deployment complexity, and high change costs.
-3. Potential improvements: Opportunities to simplify the architecture, adopt supported frameworks, improve testing, and introduce clearer component boundaries.
+#### 2.1 Logical architecture
 
-Modernization should proceed incrementally where possible, preserving proven functionality while systematically addressing verified constraints.
+**Primary data-processing path**
 
-⸻
+External Sources → Ingestion Worker → Raw Data Archive and Staging → Job Coordinator → Batch Worker → Processing Core → Validated Outputs → Publication
 
-2. Understanding the Existing Architecture
+**Online interaction path**
 
-A typical legacy enterprise processing application may follow a layered but tightly integrated architecture.
+Browser → Web Application → Application APIs → Processing and Workflow Services → Operational Database
 
-Illustrative processing model:
+**Shared infrastructure**
 
-External Data Sources
-         |
-         v
-ETL / Data Ingestion
-         |
-         v
-Batch Scheduling and Workflow
-         |
-         v
-Database Stored Procedures
-         |
-         v
-Application Processing
-         |
-         +-------------------+
-         |                   |
-         v                   v
-  Online Application    Service APIs
-         |                   |
-         +---------+---------+
-                   |
-                   v
-          Operational Database
+Relational Database · Enterprise Scheduler · Identity and Access Management · Secrets Management · Logging and Monitoring · CI/CD
 
-Although the diagram presents distinct logical components, these components may share application code, database transactions, runtime processes, deployment packages, or release procedures.
+The database is initially shared, but responsibility for reading and modifying different datasets is explicitly defined.
 
-This coupling can create limitations that are difficult to recognize from technology inventories alone.
+#### 2.2 Component responsibilities
 
-2.1 Types of architectural coupling
+| Component | Responsibility | Recommended implementation |
+|---|---|---|
+| Ingestion Worker | Acquire, validate, archive, and normalize incoming data | Spring Boot-based worker or approved ETL replacement |
+| Job Coordinator | Manage dependencies, execution status, retries, and scheduling integration | Enterprise scheduler with application job-control tables |
+| Batch Worker | Execute transformations, calculations, and batch processing steps | Spring Batch |
+| Processing Core | Implement reusable business processing logic | Java modules and retained SQL procedures |
+| Operational Database | Store processing data, execution state, and results | Existing relational database |
+| Application API | Provide controlled online access to application functions | Spring Boot REST services |
+| Web Application | Provide interactive screens and operational controls | Existing JSP initially; optional modern frontend |
+| Workflow Component | Manage persistent human tasks, approvals, and exceptions | Retain/upgrade Activiti or evaluate a BPM alternative |
+| Publication Adapter | Deliver validated results to authorized consumers | Java-based file/API delivery adapter |
+| Observability | Capture execution metrics, traces, alerts, and diagnostic logs | OpenTelemetry and approved monitoring infrastructure |
 
-Coupling type	Description	Potential consequences
-Deployment coupling	Multiple workloads must be deployed together	Larger release scope and regression effort
-Runtime coupling	Batch, API, and interactive workloads share computing resources	Resource contention and unpredictable performance
-Data coupling	Components depend on shared tables and database internals	Difficult independent changes
-Processing coupling	Processing steps rely on implicit schedules or state transitions	Complex recovery and reprocessing
-Technology coupling	Application components depend on outdated frameworks or libraries	Difficult framework and runtime upgrades
+These are logical components. They do not all require separate deployments.
 
-A useful assessment should identify which forms of coupling are intentional, which are problematic, and which are economically reasonable to retain.
+### 3. Physical Deployment Architecture
 
-3. Technical Architecture Assessment
+The initial target should use three primary runtime types.
 
-3.1 Workflow Engine: Activiti
+#### Runtime A: Ingestion
 
-Workflow engines support process definition, execution, state management, and coordination of business or technical activities.
+An independently executable ingestion worker receives external files or records and prepares data for application processing.
 
-Activiti-based applications may use BPMN workflows to coordinate human tasks, backend services, batch operations, or combinations of these capabilities.
+Responsibilities include:
 
-Potential limitations
+- Source acquisition and authentication.
+- File validation and schema checks.
+- Duplicate detection.
+- Raw input archival.
+- Transformation into an agreed staging format.
+- Loading staging tables.
+- Publishing ingestion status.
 
-* Tight coupling between workflow definitions and application-specific Java classes.
-* Dependence on engine-specific APIs, persistence schemas, and runtime behavior.
-* Complex handling of failed or suspended workflow instances.
-* Difficult migration of active workflow definitions and instances.
-* Legacy engine versions that restrict framework or Java upgrades.
-* Use of workflow infrastructure for relatively simple technical job sequencing.
+The ingestion runtime should not contain presentation logic or manage human workflow state.
 
-The significance of these limitations depends on how the engine is used and which version is deployed.
+#### Runtime B: Batch Processing
 
-Modernization alternatives
+A separate batch runtime handles scheduled or dependency-driven processing.
 
-Alternative	Suitable conditions
-Retain the engine	Stable implementation with acceptable support and maintenance characteristics
-Upgrade the engine	Version obsolescence is the principal concern
-Migrate to a maintained BPM platform	Complex, persistent business workflows remain necessary
-Replace technical orchestration	Workflows primarily coordinate scheduled jobs and data processing
-Implement explicit application states	Processes are simple enough not to require a general BPM engine
+Responsibilities include:
 
-Architectural guidance
+- Executing named jobs and steps.
+- Calling processing modules and stored procedures.
+- Maintaining execution checkpoints.
+- Managing retries and restart behavior.
+- Recording processing outcomes.
+- Preparing validated result sets.
+- Initiating controlled publication.
 
-A workflow engine should be evaluated based on the complexity and persistence requirements of the processes it manages.
+A Spring Boot application containing Spring Batch jobs is one implementation.
 
-Long-running business processes involving approvals, exceptions, and human interaction may justify BPM technology.
+Each job runs in its own process or managed execution context. Concurrent execution limits should be configurable by job type and partition.
 
-Technical batch dependencies may be better managed through scheduling and batch execution frameworks.
+#### Runtime C: Online Application and APIs
 
-Modernization should avoid replacing one complex orchestration platform with another without demonstrating a corresponding improvement.
+The online runtime supports interactive users and application services.
 
-3.2 Rigid Feed-Driven Batch Processing
+Initially, a JSP application can remain in this runtime while backend functions are exposed through defined application service interfaces.
 
-Batch processing remains appropriate for many enterprise workloads, especially where input data arrives periodically and processing must operate on complete, validated datasets.
+Responsibilities include:
 
-The architectural concern is not the presence of batch processing, but its implementation.
+- Authentication and authorization.
+- Data inquiry.
+- Processing-status retrieval.
+- Authorized operational actions.
+- Exception and approval handling.
+- Integration with the workflow engine.
 
-Common limitations
+The online runtime should not execute large batch calculations directly.
 
-* Fixed sequencing across otherwise independent processing steps.
-* Inability to process subsets of data without executing an entire batch chain.
-* Dependence on implicit scheduling and database states.
-* Insufficient input validation and failure isolation.
-* Difficult restart and recovery procedures.
-* Limited visibility into processing progress.
-* Reprocessing that can introduce duplicates or inconsistent results.
+Long-running actions should submit controlled processing requests and return execution identifiers.
 
-Target characteristics
+#### Deployment model
 
-A modern batch architecture should provide:
+| Deployment | Initial arrangement | Future option |
+|---|---|---|
+| Ingestion Worker | Independent process | Independently scaled workers |
+| Batch Worker | Independent process | Parallel processing partitions |
+| Online/API Runtime | Existing online application, progressively modularized | Separate web frontend and API runtime |
+| Workflow Engine | Embedded or existing deployment | Dedicated runtime if justified |
+| Database | Existing shared database | Schema and access boundaries, with later separation only if necessary |
+| Scheduler | Existing enterprise scheduler | Retain or replace based on demonstrated limitations |
 
-1. Explicit job definitions and dependencies.
-2. Input and output version tracking.
-3. Job execution identifiers.
-4. Restartable processing steps.
-5. Configurable retries and failure handling.
-6. Idempotent execution where required.
-7. Operational monitoring and execution history.
-8. Independent scaling when workload characteristics justify it.
+Containerized deployment is an option, not a prerequisite. The same architecture can be implemented using controlled JVM processes on virtual machines.
 
-Batch execution frameworks such as Spring Batch can provide execution metadata, transactional processing, restartability, and partitioning.
+### 4. Concrete Application Module Structure
 
-However, application-level batch execution and enterprise scheduling are different responsibilities. Existing scheduling infrastructure may remain appropriate.
+A single source repository can contain multiple independently built applications and shared modules.
 
-The objective should be greater reliability and maintainability, not the elimination of batch processing.
+An illustrative structure is:
 
-3.3 JSP-Based User Interfaces
+| Module | Contents | Deployment |
+|---|---|---|
+| `ingestion-worker` | File readers, validation, mapping adapters | Independent executable |
+| `batch-worker` | Spring Batch jobs, step definitions, restart handling | Independent executable |
+| `api-service` | REST controllers, command/query services, security | Online runtime |
+| `web-ui` | JSP pages, or later a separate frontend | Online runtime initially |
+| `processing-core` | Reusable processing rules and domain logic | Shared internal library |
+| `persistence` | Repository interfaces, SQL access, stored procedure adapters | Shared internal library |
+| `workflow-adapter` | Workflow operations behind an interface | Library or separate service |
+| `processing-contracts` | Input/output schemas and internal contracts | Shared versioned module |
+| `database-migrations` | Version-controlled database changes | Deployment pipeline |
 
-JSP-based applications can remain operational for extended periods, particularly when their user interfaces are stable and relatively simple.
+This establishes modularity without requiring every module to become an independent network service.
 
-Modernization concerns emerge when presentation code becomes closely integrated with backend processing.
+The batch worker and API application may use the same domain library while having separate deployment and runtime lifecycles.
 
-Potential limitations
+Shared libraries should be versioned, and dependencies between modules should be controlled to avoid recreating a tightly coupled architecture.
 
-* Business logic embedded in presentation components.
-* Direct dependence on application persistence structures.
-* Incompatibility with supported Java or web framework versions.
-* Difficult automated UI testing.
-* Limited separation between presentation and backend services.
-* Security or maintenance risks associated with unsupported dependencies.
+### 5. Data Architecture
 
-Modernization alternatives
+The existing relational database should remain the initial system of record.
 
-A full frontend rewrite is not always necessary.
+The main change is clearer separation of data responsibilities.
 
-Potential approaches include retaining JSP while upgrading supporting frameworks, progressively separating backend logic, introducing service APIs, and replacing specific screens where justified.
+#### 5.1 Logical schemas
 
-The decision should be based on measurable maintainability, security, compatibility, or user experience requirements.
+| Schema | Example tables | Purpose |
+|---|---|---|
+| `staging` | `source_file`, `input_record`, `rejected_record` | Incoming and normalized data |
+| `control` | `feed_delivery`, `job_run`, `step_run`, `processing_lock` | Technical execution management |
+| `core` | Existing application tables | Established processing state and results |
+| `workflow` | Workflow engine tables | Process instances and human tasks |
+| `audit` | `change_history`, `publication_history` | Traceability and operational evidence |
 
-A modern frontend does not compensate for poorly structured backend dependencies.
+These can be actual database schemas or logical groupings where the database platform or existing design makes separate schemas impractical.
 
-3.4 Complex Database Stored Procedures
+**The objective is clear ownership, not immediate database restructuring.**
 
-Stored procedures often contain substantial business processing logic accumulated over many years.
+#### 5.2 Access boundaries
 
-They may implement transformations, validations, calculations, reconciliation, aggregations, and application state updates.
+Recommended access rules include:
 
-Their complexity can become a significant maintenance concern, but replacing stored procedures with application code is not inherently beneficial.
+- Ingestion workers write to staging and ingestion-control structures.
+- Batch workers read staged inputs and write authorized core results.
+- Application APIs expose defined commands and queries.
+- The web interface does not access the database directly.
+- The workflow adapter owns engine-specific persistence interactions.
+- Reporting and inquiry functions use defined queries or views rather than uncontrolled table access.
 
-Typical concerns
+A shared database does not imply that every component should be allowed to modify every table.
 
-* Long procedures with multiple responsibilities.
-* Deep dependency chains across procedures and tables.
-* Implicit transaction boundaries.
-* Limited unit and regression test coverage.
-* Hidden processing state.
-* Difficulty identifying the impact of schema or logic changes.
-* Business rules distributed across SQL and application code.
+Where possible, each critical dataset should have a clearly designated writer.
 
-Recommended classification
+#### 5.3 Example control tables
 
-Processing responsibility	General recommendation
-Set-based transformations	Retain in SQL when efficient and maintainable
-Large aggregations	Evaluate database execution performance before moving
-Complex business calculations	Preserve initially and introduce regression coverage
-Application orchestration	Consider extracting from stored procedures
-Workflow state transitions	Make state ownership and transitions explicit
-Mixed-responsibility procedures	Refactor selectively along cohesive functional boundaries
+**`feed_delivery`**
 
-A practical strategy is to establish test coverage before changing critical calculation logic.
+| Field | Purpose |
+|---|---|
+| `delivery_id` | Unique delivery identifier |
+| `source_id` | Identity of the source |
+| `business_date` | Effective processing date |
+| `file_name` | Original file reference |
+| `checksum` | Input content fingerprint |
+| `input_version` | Source revision |
+| `received_at` | Arrival timestamp |
+| `validation_status` | Input validation result |
+| `archive_location` | Immutable raw input reference |
 
-Regression testing should compare existing and modified processing using identical input datasets.
+**`job_run`**
 
-The objective is to improve understandability, testability, and change isolation rather than to eliminate SQL-based processing.
+| Field | Purpose |
+|---|---|
+| `run_id` | Unique processing-run identifier |
+| `job_name` | Processing job |
+| `delivery_id` | Input lineage |
+| `status` | Execution state |
+| `attempt_number` | Recovery tracking |
+| `started_at` | Execution start |
+| `completed_at` | Execution completion |
+| `error_code` | Standardized failure category |
+| `result_version` | Output version, if successfully produced |
 
-3.5 Bundled Batch, Services, and Online Processing
+**`step_run`**
 
-A single application may support scheduled jobs, backend services, user interactions, and data processing within one deployment.
+Tracks individual processing stages, their start and completion times, execution counts, checkpoints, and errors.
 
-This arrangement can simplify early development and reduce operational complexity. Over time, however, different workload characteristics may make a shared runtime less desirable.
+Spring Batch supplies its own execution metadata. Custom control tables should complement that metadata rather than duplicate every framework field.
 
-For example:
+#### 5.4 Data lineage
 
-* Batch workloads may require substantial memory and database throughput.
-* Online workloads may require low latency and predictable response times.
-* Services may need higher availability than scheduled processing.
-* Batch and online processing may have different release frequencies.
+Every published result should be traceable to:
 
-Sharing runtime resources can therefore create undesirable dependencies.
+- The specific input delivery and version.
+- The processing run.
+- The processing logic or mapping version.
+- The relevant transformation steps.
+- The result version.
+- Its publication status.
 
-Recommended direction
+This allows controlled processing of corrected inputs and investigation of discrepancies.
 
-Separate workload execution where justified, while initially preserving shared code and database infrastructure.
+### 6. Concrete Batch Processing Design
 
-Possible boundaries include:
+Batch modernization should introduce explicit processing stages, rather than a single large chain with hidden dependencies.
 
-* Batch execution runtime.
-* API/service runtime.
-* Online application runtime.
-* Workflow runtime, if separately justified.
+#### 6.1 Reference job pipeline
 
-This does not require adopting microservices.
+| Step | Operation | Success condition |
+|---|---|---|
+| 1 | Acquire input | Input persisted and identified |
+| 2 | Validate | Schema and required fields accepted |
+| 3 | Stage | Accepted records loaded |
+| 4 | Normalize | Standardized records available |
+| 5 | Execute calculations | Processing successfully committed |
+| 6 | Validate results | Defined reconciliation and completeness checks pass |
+| 7 | Prepare publication | Complete output version created |
+| 8 | Publish | Authorized consumers receive a committed output |
+| 9 | Close execution | Final state and metrics recorded |
 
-A modular application with separate executable components may provide sufficient operational isolation without introducing distributed transactions and unnecessary network communication.
+Not every implementation requires all nine steps to be separate jobs. Some may be steps within a single job.
 
-⸻
+#### 6.2 Execution states
 
-4. Mandatory ETL Platform Migration
+A useful execution state model is:
 
-Enterprise applications may face mandatory migration away from legacy ETL platforms because of technology standardization, retirement decisions, licensing changes, or support requirements.
+`RECEIVED → VALIDATED → STAGED → PROCESSING → VERIFIED → PUBLISHED`
 
-Such migrations create an opportunity to improve architectural structure, but also introduce substantial execution risk.
+Alternate states include:
 
-4.1 Common ETL responsibilities
+`REJECTED`, `FAILED`, `RETRY_PENDING`, and `CANCELLED`.
 
-Legacy ETL environments may perform:
+Transitions should be validated centrally rather than inferred from ad hoc database updates.
 
-* File acquisition and parsing.
-* Data validation.
-* Format normalization.
-* Reference data lookups.
-* Transformations and aggregations.
-* Database loading.
-* Scheduling and dependency management.
-* Error handling.
-* Audit logging and operational reporting.
+#### 6.3 Restartability and idempotency
 
-Before selecting a replacement platform, these responsibilities should be inventoried and classified.
+Restartability means that a failed job can resume or be rerun under defined conditions.
 
-A direct tool-for-tool migration may be appropriate for some workloads. Other workloads may benefit from simplification or relocation of processing responsibilities.
+Idempotency means repeating an operation does not unintentionally duplicate its effects.
 
-4.2 ETL modernization alternatives
+They are related but separate properties.
 
-Approach	Advantages	Limitations
-Replacement enterprise ETL platform	Familiar development and operational model	Risk of recreating existing dependencies
-Application-owned batch processing	Better integration with application logic and tests	Greater engineering ownership
-Database-centric transformation	Efficient for relational and set-based processing	Can increase database dependency
-Hybrid implementation	Allows appropriate technology for each responsibility	Requires clear boundaries and operating standards
+Recommended mechanisms include:
 
-4.3 Recommended migration principles
+- Durable step checkpoints.
+- Unique input identifiers.
+- Database constraints against duplicate business effects.
+- Defined transaction boundaries.
+- Controlled retry policies.
+- Processing locks for conflicting runs.
+- Separate identifiers for corrected input versions.
+- Publication records that prevent duplicate delivery effects.
 
-The replacement should preserve functional equivalence while improving control over processing.
+For example, if a batch fails after processing 70% of its records, recovery should not require restarting unrelated jobs or duplicating already committed calculations.
 
-Important capabilities include:
+The correct restart behavior depends on the transaction model. Chunk-based processing can provide checkpoints, but database procedures with large internal transactions may require different recovery strategies.
 
-* Immutable or versioned source inputs.
-* Explicit schema validation.
-* Input checksums and processing identifiers.
-* Rejection and exception reporting.
-* Repeatable transformations.
-* Restart and retry policies.
-* Comparison of legacy and replacement outputs.
-* Clear processing ownership.
+#### 6.4 Partitioning
 
-A representative workload should be migrated first to validate the execution architecture, operational model, and regression-testing approach.
+Where records can be processed independently, jobs may be partitioned by:
 
-⸻
+- Source.
+- Business date.
+- Account or processing group.
+- Record range.
+- Other stable partitioning keys.
 
-5. Target Technical Architecture
+Partitioning should only be enabled where independence and transaction isolation are proven.
 
-The target architecture should separate concerns without prematurely distributing business logic or data ownership.
+The architecture should initially support serial execution and introduce parallelism based on measured performance needs.
 
-Illustrative modular architecture:
+### 7. Workflow Architecture
 
-          External Data Sources
-                   |
-                   v
-        +----------------------+
-        |  Data Ingestion      |
-        |  Validation          |
-        |  Transformation      |
-        +----------------------+
-                   |
-                   v
-        +----------------------+
-        | Batch Orchestration  |
-        | Scheduling           |
-        | Execution Tracking   |
-        | Restart / Recovery   |
-        +----------------------+
-                   |
-                   v
-        +----------------------+
-        | Processing Core      |
-        |                      |
-        | Business Rules       |
-        | Calculations         |
-        | Database Operations  |
-        +----------------------+
-                   |
-          +--------+--------+
-          |                 |
-          v                 v
-   +-------------+   +-------------+
-   | Online      |   | Service     |
-   | Application |   | APIs        |
-   +-------------+   +-------------+
-           Shared Operational
-                Database
+Business workflow and technical job orchestration should be treated as distinct concerns.
 
-Cross-cutting capabilities include observability, audit, security, configuration, deployment automation, and regression testing.
+#### 7.1 Business workflow
 
-5.1 Important architectural decisions
+A BPM engine remains appropriate for persistent human processes such as:
 
-Separate execution before separating data.
+- Investigation.
+- Approval.
+- Exception resolution.
+- Review and escalation.
 
-Different workloads may be deployed and scaled independently without immediately introducing independent databases.
+An application-level workflow adapter should expose operations such as:
 
-Preserve proven calculations.
+`startProcess()`
 
-Existing database calculations should generally remain unchanged until there is evidence that their implementation creates meaningful problems.
+`getTask()`
 
-Establish explicit processing contracts.
+`completeTask()`
 
-Each job should define its inputs, outputs, dependencies, transaction expectations, failure behavior, and restart semantics.
+`getProcessStatus()`
 
-Avoid unnecessary distribution.
+`cancelProcess()`
 
-Independent components are useful when they improve isolation, ownership, scaling, or maintainability. They are not an objective in themselves.
+The rest of the application should not depend directly on engine-specific implementation APIs.
 
-Modernize the runtime where constraints are demonstrated.
+This makes it easier to retain, upgrade, or replace Activiti without rewriting unrelated processing functions.
 
-Supportability, security, and compatibility requirements should influence the timing of upgrades more than technology age alone.
+#### 7.2 Technical orchestration
 
-⸻
+Technical orchestration should manage:
 
-6. Comparing Modernization Strategies
+- Scheduled jobs.
+- Input dependencies.
+- Conditional processing steps.
+- Failed-job recovery.
+- Job completion and downstream triggers.
 
-Four common strategies are available.
+A BPM engine is not necessarily required for these operations.
 
-Dimension	Minimum migration	Targeted remediation	Modular modernization	Full replacement
-Scope	Mandatory changes only	Selected risks and constraints	Incremental architectural restructuring	New application
-Existing business logic	Retained	Mostly retained	Retained or selectively refactored	Potentially rewritten
-Application structure	Mostly unchanged	Limited changes	Clearer execution and module boundaries	Redesigned
-Cost	Lowest	Low to moderate	Moderate	Highest
-Implementation risk	Relatively low	Moderate	Moderate, if incremental	High
-Long-term improvement	Limited	Focused	Potentially substantial	Depends on delivery quality
+An enterprise scheduler combined with batch execution metadata and application-specific control tables is a reasonable default.
 
-Strategy A: Minimum Migration
+#### 7.3 Workflow migration
 
-Implement mandatory technology changes while preserving the architecture.
+A phased approach is preferable:
 
-This is reasonable when the application is stable, maintainable, and unlikely to require substantial future enhancements.
+1. Inventory workflow definitions and active instances.
+2. Identify custom engine dependencies.
+3. Classify business workflows versus technical orchestration.
+4. Establish a workflow adapter.
+5. Upgrade or replace only where support, complexity, or operating requirements justify it.
 
-Its principal disadvantage is that existing architectural constraints remain.
+Migration feasibility depends on the exact Activiti version, workflow definitions, extensions, and persistence data.
 
-Strategy B: Targeted Remediation
+### 8. Online and Service Architecture
 
-Address specific problems such as unsupported dependencies, difficult batch recovery, or high-risk stored procedures.
+The online application should communicate through defined service interfaces rather than directly coordinating backend implementation details.
 
-This is appropriate when risks are localized and can be addressed independently.
+#### 8.1 Example APIs
 
-Strategy C: Modular Modernization
+| Endpoint | Purpose |
+|---|---|
+| `GET /api/v1/jobs` | List processing runs |
+| `GET /api/v1/jobs/{runId}` | Retrieve run details |
+| `POST /api/v1/jobs/{jobName}/runs` | Request authorized execution |
+| `POST /api/v1/jobs/{runId}/retry` | Request controlled recovery |
+| `GET /api/v1/feeds/{deliveryId}` | Retrieve input delivery status |
+| `GET /api/v1/exceptions` | Retrieve processing exceptions |
+| `POST /api/v1/workflows/{id}/actions` | Submit an authorized workflow action |
 
-Progressively establish boundaries between ingestion, processing, workflow, online functions, and services.
+These interfaces illustrate boundary design, not a requirement to expose all functions publicly.
 
-This may provide a durable improvement in maintainability and operational isolation while retaining existing business functionality.
+An API should validate caller permissions, maintain audit records for state-changing operations, and use idempotency controls where requests might be repeated.
 
-The risk is uncontrolled scope growth if the program attempts to redesign every component.
+Batch execution requests should normally return an execution ID rather than waiting for processing to finish.
 
-Strategy D: Full Replacement
+#### 8.2 JSP modernization path
 
-Rebuild the application around a new architecture and technology stack.
+The UI can evolve in three increments.
 
-This is most defensible when the existing system has extensive structural limitations, major functional change requirements, or an unfavorable long-term cost of ownership.
+**Increment 1: Retain JSP.**
 
-A full rewrite introduces considerable migration, regression, and delivery risk.
+Remove critical business logic from pages and establish application service boundaries.
 
-Decision principle: Choose the least disruptive strategy that adequately addresses verified risks and anticipated change requirements.
+**Increment 2: Upgrade framework dependencies.**
 
-⸻
+Update supported Java/web frameworks and improve authentication, authorization, and automated testing.
 
-7. Modernization Sequencing
+**Increment 3: Selective frontend replacement.**
 
-A phased program enables technical risk reduction without requiring a large, irreversible commitment.
+Replace screens with a modern frontend framework where justified by maintainability, compatibility, or usability requirements.
 
-Phase	Principal activities	Deliverable
-0. Assessment	Inventory components, dependencies, risks, and performance	Architecture baseline
-1. Mandatory migration	Replace retiring technologies; establish comparison tests	Supported ingestion or processing capability
-2. Execution separation	Isolate suitable batch, service, and online workloads	Reduced runtime and deployment coupling
-3. Logic simplification	Refactor selected workflows and database processing	Improved maintainability
-4. UI renewal	Upgrade or replace selected presentation components	Supported UI implementation
-5. Optimization	Improve recovery, monitoring, automation, and performance	Sustained operational improvements
+A React or Angular frontend is an option, not a mandatory architectural choice.
 
-These phases need not be strictly sequential. Mandatory deadlines and technical dependencies should determine the actual delivery plan.
+The API boundary should be established independently of the frontend technology decision.
 
-A sensible approach is to establish a common testing and processing-control foundation early so that later migration activities can reuse it.
+### 9. Output Publication and Consistency
 
-Each phase should have explicit exit criteria and independently measurable benefits.
+Publishing partially processed results is a significant architectural risk.
 
-⸻
+A processing run should produce a complete, validated result version before exposing it as final.
 
-8. Estimating Modernization Costs
+A possible publication protocol is:
 
-Modernization costs depend primarily on implementation complexity, retained functionality, integration dependencies, test coverage, and delivery constraints.
+1. Write results to a run-specific staging or result version.
+2. Validate record counts and business invariants.
+3. Mark the version as verified.
+4. Atomically update the active publication reference where the database permits.
+5. Deliver or expose that committed version.
+6. Record publication outcome and downstream acknowledgement.
 
-The following figures are illustrative planning ranges for a medium-to-large enterprise application in a US engineering environment.
+For internal database consumers, a versioned view or active-version reference can provide controlled visibility.
 
-Workstream	Illustrative range
-Technical assessment and prototype	$100K–$250K
-ETL platform migration	$450K–$1.2M
-Batch execution separation	$350K–$800K
-Workflow modernization	$150K–$600K
-Selective database refactoring	$250K–$900K
-UI modernization	$200K–$600K
+For external asynchronous delivery, an outbox table or equivalent durable delivery mechanism can prevent the database transaction and outbound publication process from becoming inconsistently recorded.
 
-These ranges assume substantial reuse of existing business functionality. They exclude unknown licensing, infrastructure, and enterprise-specific constraints.
+An outbox is optional if simple transactional publication or reliable file delivery already meets the requirement.
 
-The estimates overlap and should not simply be summed.
+A message broker should not be introduced solely to make the architecture appear event-driven.
 
-Indicative scenario envelopes might be:
+### 10. Failure Handling and Recovery
 
-* Minimum migration: $0.5M–$1.5M.
-* Targeted modular modernization: $1.5M–$3.5M.
-* Full replacement: $4M–$8M or more.
+A concrete design must explain what happens when processing fails.
 
-These figures are assumptions for initial scenario comparison, not market-validated estimates or project budgets.
+| Failure | Expected behavior |
+|---|---|
+| Invalid file | Quarantine input; record validation errors |
+| Duplicate delivery | Identify duplicate; prevent unintended reprocessing |
+| Missing dependency | Hold dependent execution in a waiting state |
+| Stored procedure failure | Roll back or preserve committed checkpoints according to transaction design |
+| Worker process crash | Recover execution metadata and resume from a safe point |
+| Online application outage | Batch execution continues independently where supported |
+| Workflow engine outage | Preserve task state and resume authorized workflow operations |
+| Publication failure | Preserve completed result version and retry delivery safely |
+| Corrected input | Create a new input version and explicitly identify superseded results |
 
-8.1 Improving estimate quality
+Recovery design should address both technical consistency and operational usability.
 
-A more reliable estimate requires an inventory of:
+Every failure should have an identifiable execution, a documented recovery action, and sufficient retained data to reproduce the problem where feasible.
 
-* ETL mappings and transformation complexity.
-* Batch jobs and interdependencies.
-* Workflow definitions and custom integrations.
-* Stored procedures and database dependencies.
-* User interface screens and backend integration.
-* Existing automated testing.
-* Third-party and infrastructure dependencies.
-* Required parallel processing and migration validation.
+### 11. Security, Observability, and Deployment
 
-Estimation should distinguish between work required for mandatory compliance and discretionary architectural improvements.
+#### 11.1 Security
 
-⸻
+The target should use:
 
-9. Measuring Modernization Value
+- Centralized identity and access management.
+- Role-based authorization for online and operational actions.
+- Separate application service accounts.
+- Least-privilege database access.
+- Managed secrets.
+- Encryption in transit.
+- Audit logging for state-changing operations.
+- Controlled administrative and retry operations.
 
-Technical modernization should produce measurable outcomes rather than rely on subjective claims about technology quality.
+#### 11.2 Observability
 
-Evaluation dimension	Example measure
-Maintainability	Engineering effort per representative change
-Release independence	Percentage of changes requiring a full application deployment
-Recovery	Mean time to recover failed processing
-Reliability	Frequency and impact of processing failures
-Testability	Automated regression coverage of critical processing
-Performance	Batch completion times and online response times
-Supportability	Number of critical unsupported dependencies
-Operational efficiency	Manual intervention required per processing cycle
-Delivery productivity	Lead time from approved change to production
+Monitoring should capture:
 
-Illustrative improvement targets could include a 30% reduction in change lead time, a 50% reduction in processing recovery time, or substantial elimination of unnecessary shared deployments.
+- Input arrival and validation status.
+- Job execution counts and durations.
+- Failed steps and retry frequency.
+- Queue or dependency waiting time.
+- Processing throughput.
+- Database contention.
+- API error rates and latency.
+- Publication lag and failures.
 
-Such targets should be established only after baselines are measured.
+Logs and traces should carry a consistent correlation identifier, ideally including `run_id` or equivalent execution context.
 
-A successful modernization increment should demonstrate both technical correctness and measurable operational or engineering value.
+Spring Boot observability and OpenTelemetry are reasonable implementation choices in a Java-based architecture.
 
-⸻
+#### 11.3 Deployment and release management
 
-10. Developing an Executive Investment Case
+The minimum desired outcome is that a change to a batch job does not automatically require redeploying the online application.
 
-A technical modernization investment case should answer five questions.
+Recommended release controls include:
 
-1. Why is change necessary?
+- Separate build artifacts for each executable runtime.
+- Versioned shared libraries.
+- Automated tests.
+- Database migration scripts.
+- Automated deployment pipelines.
+- Environment-specific configuration.
+- Controlled rollback procedures.
+- Compatibility testing between components sharing the database.
 
-Identify mandatory migrations, unsupported dependencies, security concerns, operational risks, and architectural constraints.
+Database changes require particular care because separately deployed applications may temporarily run different code versions against the same schema.
 
-Differentiate confirmed requirements from potential future concerns.
+Backward-compatible schema changes and phased cutovers are preferable.
 
-2. What happens if the application remains unchanged?
+### 12. Technology Selection
 
-Quantify ongoing maintenance cost, failure exposure, recovery effort, support risks, and expected future migration costs.
+The following stack is a reasonable reference option for an existing Java application.
 
-Avoid presenting technical age as an inherent failure.
+| Layer | Initial recommendation | Alternative |
+|---|---|---|
+| Programming language | Java on a supported LTS runtime | Retain another supported existing language |
+| Application framework | Spring Boot | Approved enterprise framework |
+| Batch processing | Spring Batch | Existing enterprise batch framework |
+| Scheduling | Retain approved enterprise scheduler | Quartz or platform-native scheduler |
+| ETL replacement | Java ingestion or approved ETL platform | Database-centric transformations |
+| Workflow | Existing Activiti behind adapter | Supported Activiti version, Flowable, or another BPM solution |
+| Database | Existing relational DBMS | No replacement by default |
+| SQL access | Spring JDBC or existing persistence approach | jOOQ or another appropriate framework |
+| UI | Retain JSP initially | React, Angular, or another supported frontend |
+| Observability | OpenTelemetry-compatible instrumentation | Approved monitoring tools |
+| Deployment | Separate JVM processes or containers | Kubernetes workloads where infrastructure justifies them |
+| Database changes | Versioned migration scripts | Approved database release tooling |
 
-3. What alternatives have been evaluated?
+Specific library versions should be selected through compatibility and support assessment.
 
-Compare minimum compliance, targeted remediation, modular modernization, and replacement.
+**Not required in the initial target:** microservices, Kafka, service mesh, separate databases, event sourcing, cloud migration, or a complete frontend rewrite.
 
-Explain the additional cost and residual risk associated with each alternative.
+### 13. Incremental Implementation Roadmap
 
-4. What measurable benefits justify the investment?
+#### Phase 0 — Establish the Baseline
 
-Benefits may include reduced recovery time, smaller regression scope, improved deployment independence, elimination of unsupported components, and faster implementation of required changes.
+Deliver:
 
-5. How can delivery risk be controlled?
+- Current deployment topology.
+- Runtime and framework inventory.
+- Batch dependency graph.
+- Workflow classification.
+- Stored procedure dependency analysis.
+- ETL mapping inventory.
+- Failure and recovery baseline.
+- Initial regression test datasets.
 
-Prefer incremental changes, parallel validation, preservation of proven logic, explicit acceptance criteria, and staged funding.
+Exit criterion: the system's dependencies and critical change risks are sufficiently understood to select a representative migration candidate.
 
-10.1 Separate mandatory spending from discretionary improvements
+#### Phase 1 — Establish Execution Controls
 
-This distinction is essential.
+Deliver:
 
-A mandatory platform migration creates a cost that must be incurred. Additional modernization should be justified by comparing:
+- Input identification and version tracking.
+- Job execution identifiers.
+- Standard execution state.
+- Logging and monitoring conventions.
+- Regression comparison framework.
+- Controlled retry design.
 
-Minimum mandatory investment
+Exit criterion: one representative processing path can be traced from input receipt to final output.
 
-against
+#### Phase 2 — Replace Legacy Ingestion
 
-Mandatory investment plus targeted architectural improvements
+Deliver:
 
-The incremental investment should demonstrate sufficient value through reduced risk, lower future operating costs, or improved engineering efficiency.
+- Independently executable ingestion worker.
+- Validated staging interfaces.
+- Raw input archive.
+- New mappings and transformations.
+- Parallel legacy-versus-new comparison.
+- Feed-by-feed cutover mechanism.
 
-The goal is not to maximize modernization scope. It is to select economically justified improvements while avoiding unnecessary rework.
+Exit criterion: migrated workloads meet functional-equivalence and operational acceptance criteria.
 
-⸻
+#### Phase 3 — Isolate Batch Execution
 
-11. Technical Architecture Assessment Framework
+Deliver:
 
-Before committing to a modernization program, conduct a focused assessment across six areas.
+- Separate batch executable.
+- Explicit job/step definitions.
+- Scheduler integration.
+- Restart and recovery controls.
+- Database access boundaries.
+- Independent deployment and resource configuration.
 
-Area	Key assessment question
-Runtime	Which components share processes, resources, and deployments?
-Processing	Are jobs independently executable, observable, and restartable?
-Workflow	Is the workflow engine appropriately used and adequately supported?
-Data	Are processing rules, transactions, and database dependencies understandable and testable?
-Technology	Which frameworks and platforms have genuine support or compatibility risks?
-Delivery	How difficult is it to modify, validate, and release a representative change?
+Exit criterion: selected batch workloads can be deployed and executed without redeploying the online application.
 
-A practical assessment should include code and dependency analysis, architecture mapping, production incident review, performance analysis, and a representative implementation experiment.
+#### Phase 4 — Simplify Workflow and Database Logic
 
-A useful prototype might involve replacing one legacy ingestion flow while preserving downstream processing.
+Deliver:
 
-Success should be demonstrated through identical functional results, improved execution visibility, controlled failure recovery, and a documented implementation cost.
+- Workflow adapter.
+- Remediation of unsupported workflow dependencies.
+- Selective relocation of technical orchestration.
+- Refactoring of problematic stored procedures.
+- Automated regression tests for modified calculations.
 
-The prototype should test the proposed architecture rather than merely establish that a new technology works.
+Exit criterion: identified high-risk dependencies have been removed or adequately mitigated.
 
-⸻
+#### Phase 5 — Optional UI Renewal
 
-12. Common Modernization Mistakes
+Deliver:
 
-Replacing technology without identifying the actual constraint.
+- Stable backend APIs.
+- Modernized or replaced screens where needed.
+- Supported frontend dependencies.
+- Automated UI regression tests.
 
-An outdated framework may be perfectly adequate if it is supported, secure, and maintainable.
+Exit criterion: the relevant security, compatibility, and maintenance objectives have been met.
 
-Converting all stored procedures into application code.
+### 14. Architecture Acceptance Criteria
 
-This can introduce network overhead, transaction complexity, and performance degradation without improving maintainability.
+A target architecture should be evaluated against observable capabilities.
 
-Introducing microservices prematurely.
+| Capability | Example acceptance criterion |
+|---|---|
+| Deployment separation | Batch runtime can be deployed independently of online runtime |
+| Failure isolation | A failed input does not require unnecessary reprocessing of unrelated inputs |
+| Restartability | A failed job can resume or restart from a documented consistent state |
+| Duplicate protection | Replayed inputs or delivery retries do not create unintended duplicate outcomes |
+| Traceability | Final output can be linked to its input and processing run |
+| Functional equivalence | Migrated processing meets defined result-comparison tolerances |
+| Workflow isolation | Application code accesses workflow functions through controlled interfaces |
+| Database control | All critical write operations have defined ownership and transaction boundaries |
+| Observability | Critical processing failures produce identifiable alerts and diagnostic context |
+| Maintainability | Representative changes require less unnecessary deployment and regression effort |
 
-Breaking a tightly coupled application into services without establishing appropriate functional boundaries may replace in-process complexity with distributed-system complexity.
+These capabilities provide clearer evidence of modernization success than a list of technologies replaced.
 
-Modernizing the UI before stabilizing backend dependencies.
+### 15. Cost and Investment Considerations
 
-A frontend rewrite may provide limited value if backend coupling remains unchanged.
+The primary cost drivers include:
 
-Treating mandatory migration as permission for a full redesign.
+- Number and complexity of ETL mappings.
+- Coupling among batch, workflow, database, and UI components.
+- Quality of existing test coverage.
+- Number of interfaces and integration dependencies.
+- Required parallel-running periods.
+- Complexity of data and processing recovery.
+- Scope of retained versus rewritten functionality.
 
-Expanding a required technology migration into a broad rewrite can increase deadline and regression risk.
+Illustrative US enterprise planning ranges may be:
 
-Failing to establish a regression-testing foundation.
+| Workstream | Planning range |
+|---|---:|
+| Architecture assessment and prototype | $100K–$250K |
+| ETL replacement | $450K–$1.2M |
+| Batch isolation | $350K–$800K |
+| Workflow remediation | $150K–$600K |
+| Database refactoring and testing | $250K–$900K |
+| Optional UI modernization | $200K–$600K |
 
-Preserving functional correctness is essential when changing mature applications with extensive historical processing rules.
+These are hypothetical cost envelopes, not application-specific estimates. Workstreams overlap, and their figures should not be summed without a delivery resource model.
 
-Assuming a modular architecture requires separate databases.
+A credible investment case should compare mandatory migration expenditure with the additional cost of targeted improvements.
 
-Independent runtime and deployment boundaries can deliver substantial benefits without immediate data distribution.
+Value should be quantified using metrics such as change lead time, incident frequency, recovery time, regression effort, unsupported dependencies, and unnecessary deployment scope.
 
-Measuring completion rather than results.
+### 16. Architectural Decision Records
 
-Replacing a framework is an implementation milestone. Reduced operating risk, improved supportability, and lower change effort are outcomes.
+To prevent scope expansion, major architectural choices should be recorded with their context and tradeoffs.
 
-⸻
+A minimal set of decisions is:
 
-13. Recommended Architecture Principles
+| Decision | Preferred initial direction | Revisit when |
+|---|---|---|
+| Application decomposition | Modular application with separate runtimes | Independent scaling or ownership demands further separation |
+| Database | Retain shared relational database | Strong data isolation requirements emerge |
+| Batch framework | Standardize restartable Java batch execution | Existing platform offers equivalent capabilities |
+| Workflow | Retain behind abstraction initially | Version support or workflow complexity warrants replacement |
+| UI | Preserve initially | Security, compatibility, or change cost justifies renewal |
+| Messaging | Avoid mandatory message broker | Reliable asynchronous delivery requirements justify it |
+| Infrastructure | Use existing approved runtime platform | Capacity or operational constraints require change |
 
-A sustainable modernization strategy should follow these principles:
+Recording these decisions helps distinguish intentional architectural compromises from undocumented legacy dependencies.
 
-1. Modernize based on evidence. Architectural limitations should be verified through technical and operational analysis.
-2. Preserve functional correctness. Existing processing results should remain consistent unless functional changes are intentional.
-3. Separate concerns incrementally. Establish clear boundaries without introducing unnecessary distribution.
-4. Retain effective technology. Keep components that remain supported, maintainable, and appropriate.
-5. Make processing observable and recoverable. Explicit execution state and controlled reprocessing should be foundational capabilities.
-6. Reduce unnecessary deployment coupling. Allow different workloads to evolve independently where beneficial.
-7. Build automated regression testing early. Testing is an enabler of modernization, not an activity reserved for the end.
-8. Control migration scope. Mandatory requirements and discretionary improvements should have distinct justifications.
-9. Measure the outcomes. Use operational and engineering metrics to evaluate success.
-10. Preserve architectural options. Favor reversible decisions and phased investment over speculative large-scale redesign.
+### 17. Final Recommendation
 
-⸻
+For an application with legacy ETL, scheduled batch workloads, Activiti workflows, substantial database logic, and a JSP interface, the preferred default is a **modular monolith with independently executable workloads**.
 
-14. Conclusion
+The initial target should contain:
 
-The modernization of a legacy enterprise application should not begin with a predetermined replacement architecture.
+- An ingestion worker with input validation, archival, and staging.
+- A restartable batch runtime with explicit job execution controls.
+- A retained processing core using existing Java and SQL logic.
+- A controlled relational database with clearer access boundaries.
+- An online application exposing stable service interfaces.
+- A workflow abstraction that isolates the BPM engine.
+- Controlled output publication and comprehensive execution monitoring.
 
-It should begin with an understanding of how the application works, where complexity resides, which dependencies create genuine risk, and which technical characteristics limit its ability to evolve.
+This design addresses common maintenance and operational limitations without the additional complexity of a full distributed application rewrite.
 
-Applications built with Activiti, JSP, stored procedures, batch processing, and traditional ETL technologies are not necessarily architecturally deficient. The need for modernization depends on the supportability, operational reliability, maintainability, and economic sustainability of their implementation.
+Further decomposition should occur only when measurable requirements—such as independent scaling, availability, release cadence, or technical ownership—justify it.
 
-For many applications, the most effective strategy is incremental modular modernization: preserve established processing logic, replace mandatory technology dependencies, improve execution and recovery controls, and separate workloads where measurable benefits justify the change.
-
-The objective is not to replace legacy technology for its own sake. It is to establish an application architecture that can be maintained, operated, and evolved reliably at an acceptable cost.
+**The key architectural outcome is not a larger number of services. It is independent execution, predictable recovery, controlled dependencies, and a demonstrably lower cost of change.**
